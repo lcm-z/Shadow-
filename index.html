@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0814">
+  <title>Shadow | PC Optimizer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <button id="close-app-button" class="window-close-button" type="button" aria-label="Fechar Shadow" title="Fechar Shadow">×</button>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <div class="stars" aria-hidden="true"></div>
+
+  <main id="welcome" class="welcome-screen">
+    <div class="welcome-content">
+      <div class="eyebrow"><span class="eyebrow-dot"></span> PC PERFORMANCE <span class="eyebrow-divider">/</span> SMART ANALYSIS</div>
+      <div class="brand-mark" aria-hidden="true"><span></span></div>
+      <h1>SHADOW</h1>
+      <p class="tagline">Seu PC em foco. <span>Sem promessas mágicas.</span></p>
+
+      <section class="disclaimer glass-card">
+        <div class="disclaimer-icon">i</div>
+        <h2>ANTES DE COMEÇAR</h2>
+        <p>O Shadow mostra CPU, memória, disco e processos. Você pode revisar temporários antigos, itens de inicialização e planos de energia; qualquer alteração pede confirmação. Ele não faz milagres nem garante mais FPS. Em PCs muito fracos ou antigos, a melhora necessária pode depender da troca de peças.</p>
+      </section>
+
+      <button id="analyze-button" class="primary-button" type="button">
+        <span>Analisar</span><span class="button-arrow" aria-hidden="true">↗</span>
+      </button>
+      <div class="safe-note"><span class="safe-check">✓</span> VOCÊ ESCOLHE <span>·</span> ALTERAÇÕES SEMPRE CONFIRMADAS</div>
+    </div>
+  </main>
+
+  <main id="dashboard" class="dashboard hidden">
+    <header class="topbar">
+      <div class="top-brand"><div class="mini-mark">S</div><div><strong>SHADOW</strong><small>PC OPTIMIZER</small></div></div>
+      <div id="system-status" class="system-status"><span class="status-dot"></span> Aguardando análise</div>
+      <button id="refresh-button" class="secondary-button" type="button"><span aria-hidden="true">↻</span> Atualizar análise</button>
+    </header>
+
+    <section class="metrics-grid" aria-label="Recursos do computador">
+      <article class="metric-card metric-cpu"><div class="metric-label"><span class="metric-icon">◉</span> CPU EM USO</div><strong id="cpu-value">--%</strong><div class="meter"><span id="cpu-meter"></span></div><small>Uso atual do processador</small></article>
+      <article class="metric-card metric-ram"><div class="metric-label"><span class="metric-icon">▤</span> RAM EM USO</div><strong id="ram-value">--%</strong><div class="meter"><span id="ram-meter"></span></div><small id="ram-total">Memória total: -- GB</small></article>
+      <article class="metric-card metric-free"><div class="metric-label"><span class="metric-icon">◇</span> RAM DISPONÍVEL</div><strong id="available-value">-- GB</strong><div class="metric-spacer"></div><small>Memória pronta para uso</small></article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel chart-panel">
+        <div class="panel-heading"><div><span class="section-kicker">MONITORAMENTO</span><h2>Histórico de recursos</h2><p>Amostras recentes de CPU e memória</p></div><button id="live-toggle" class="secondary-button" type="button">Iniciar ao vivo</button></div>
+        <div class="chart-wrap"><canvas id="resource-chart" aria-label="Gráfico de uso da CPU e memória"></canvas></div>
+        <div class="chart-legend"><span><i class="legend-cpu"></i> CPU</span><span><i class="legend-ram"></i> RAM</span><small id="chart-range">ÚLTIMAS AMOSTRAS</small></div>
+        <div class="live-disk-io">Leitura do disco: <strong id="disk-read-rate">0 MB/s</strong><span>·</span> Escrita: <strong id="disk-write-rate">0 MB/s</strong></div>
+      </article>
+
+      <article class="panel details-panel">
+        <div class="panel-heading"><div><span class="section-kicker">RESUMO</span><h2>Diagnóstico</h2></div><span id="level-badge" class="level-badge">—</span></div>
+        <p id="diagnosis-text" class="diagnosis-text">Clique em analisar para consultar o estado atual.</p>
+        <div class="detail-divider"></div>
+        <div class="subsection-heading"><h3>Processos com maior uso de RAM</h3><span>TOP 5</span></div>
+        <p class="process-help">Escolha um aplicativo e confirme antes de pedir para fechá-lo. Salve seu trabalho primeiro.</p>
+        <ul id="process-list" class="process-list"><li class="empty-state">Os processos aparecerão após a análise.</li></ul>
+        <div class="detail-divider"></div>
+        <div class="subsection-heading"><h3>Recomendações</h3></div>
+        <ul id="recommendation-list" class="recommendation-list"><li>Aguardando leitura do sistema.</li></ul>
+      </article>
+    </section>
+
+    <section class="tools-grid" aria-label="Ferramentas de otimização">
+      <article class="panel tool-panel">
+        <div class="panel-heading"><div><span class="section-kicker">ARMAZENAMENTO</span><h2>Espaço em disco</h2><p>Unidades acessíveis neste computador</p></div></div>
+        <ul id="disk-list" class="tool-list"><li class="empty-state">Aguardando análise.</li></ul>
+      </article>
+
+      <article class="panel tool-panel">
+        <div class="panel-heading"><div><span class="section-kicker">LIMPEZA SEGURA</span><h2>Arquivos temporários</h2><p id="cleanup-summary">Prévia limitada à pasta TEMP da sua conta.</p></div></div>
+        <ul id="cleanup-files" class="tool-list"><li class="empty-state">Aguardando análise.</li></ul>
+        <button id="cleanup-button" class="tool-action-button" type="button" disabled>Limpar temporários antigos</button>
+      </article>
+
+      <article class="panel tool-panel">
+        <div class="panel-heading"><div><span class="section-kicker">WINDOWS</span><h2>Inicialização</h2><p id="startup-scope">Aplicativos iniciados ao entrar na sua conta</p></div></div>
+        <ul id="startup-list" class="tool-list"><li class="empty-state">Aguardando análise.</li></ul>
+      </article>
+
+      <article class="panel tool-panel">
+        <div class="panel-heading"><div><span class="section-kicker">ENERGIA</span><h2>Plano de energia</h2><p id="power-description">O plano atual não garante aumento de FPS.</p></div></div>
+        <select id="power-plan-select" class="tool-select" aria-label="Plano de energia" disabled></select>
+        <button id="power-plan-button" class="tool-action-button" type="button" disabled>Ativar plano escolhido</button>
+      </article>
+    </section>
+
+    <section class="panel live-process-panel">
+      <div class="panel-heading"><div><span class="section-kicker">DURANTE O JOGO</span><h2>Processos usando recursos agora</h2><p>O monitoramento ao vivo para quando você clicar em Pausar.</p></div><span id="live-status" class="live-badge"><i></i> PAUSADO</span></div>
+      <div class="live-process-columns">
+        <div><h3>Maior uso de CPU</h3><ul id="live-cpu-list" class="tool-list"><li class="empty-state">Inicie o monitoramento ao vivo.</li></ul></div>
+        <div><h3>Maior uso de RAM</h3><ul id="live-ram-list" class="tool-list"><li class="empty-state">Inicie o monitoramento ao vivo.</li></ul></div>
+      </div>
+    </section>
+
+    <footer class="dashboard-footer"><span id="platform-note">Análise informativa; não mede FPS de jogos.</span><span>SHADOW <i>•</i> PRIVACIDADE LOCAL</span></footer>
+  </main>
+
+  <div id="loading-overlay" class="loading-overlay hidden" role="status" aria-live="polite">
+    <div class="loader-orbit"><span></span><i></i></div>
+    <strong>Analisando seu PC</strong><p>Coletando dados de CPU, memória e processos…</p>
+  </div>
+  <div id="error-toast" class="error-toast hidden" role="alert"></div>
+  <script src="app.js"></script>
+</body>
+</html>
