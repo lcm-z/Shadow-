@@ -11,8 +11,7 @@ try:
     import tkinter as tk
     from tkinter import ttk
 except ImportError as error:
-    # Em algumas distribuições Linux, Tk precisa ser instalado pelo gerenciador
-    # de pacotes do sistema antes de o módulo Tkinter conseguir abrir a janela.
+ 
     tk = None
     ttk = None
 
@@ -93,12 +92,12 @@ class OptimizerApp:
         height = max(canvas.winfo_height(), 620)
         canvas.delete("all")
 
-        # Fundo roxo em degradê, desenhado em faixas para manter o app sem dependências extras.
+        
         for y in range(0, height, 3):
             color = self._blend_color("#090b19", "#321057", y / max(height, 1))
             canvas.create_line(0, y, width, y, fill=color, width=3)
 
-        # Aros luminosos decorativos no fundo.
+   
         canvas.create_oval(width * .68, -height * .55, width * 1.28, height * .45, outline="#32185a", width=2)
         canvas.create_oval(width * .72, -height * .48, width * 1.22, height * .38, outline="#261846", width=2)
         canvas.create_oval(-width * .28, height * .54, width * .25, height * 1.24, outline="#261846", width=2)
@@ -116,7 +115,7 @@ class OptimizerApp:
         canvas.create_text(center_x, height * .115, text="P C   P E R F O R M A N C E   •   S M A R T   A N A L Y S I S",
                            fill="#d6b9ff", font=("Segoe UI", 8, "bold"))
 
-        # Símbolo geométrico e título principal.
+       
         emblem_y = height * .24
         canvas.create_oval(center_x - 34, emblem_y - 34, center_x + 34, emblem_y + 34,
                            fill="#24123e", outline="#9b5de5", width=2)
