@@ -6,9 +6,14 @@ import re
 import subprocess
 import tempfile
 import time
+import stat
+import threading
 from pathlib import Path
 
 import psutil
+from ui_settings import atomic_json
+
+_startup_lock = threading.RLock()
 
 
 TEMP_MIN_AGE_DAYS = 7
@@ -47,23 +52,32 @@ def _safe_temp_root():
         root = Path(tempfile.gettempdir()).resolve()
         home = Path.home().resolve()
         common = os.path.commonpath([str(root), str(home)])
-        if os.path.normcase(common) != os.path.normcase(str(home)):
+        if root == home or os.path.normcase(common) != os.path.normcase(str(home)):
             return None
         return root
     except (OSError, ValueError):
         return None
 
 
+def _is_redirected(path):
+    info = path.lstat()
+    return path.is_symlink() or bool(getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
 def _old_temp_files(root, older_than):
     for folder, directories, files in os.walk(root, topdown=True, followlinks=False):
-        directories[:] = [
-            name for name in directories
-            if not (Path(folder) / name).is_symlink()
-        ]
+        safe_directories = []
+        for name in directories:
+            try:
+                if not _is_redirected(Path(folder) / name):
+                    safe_directories.append(name)
+            except OSError:
+                pass
+        directories[:] = safe_directories
         for name in files:
             path = Path(folder) / name
             try:
-                if path.is_symlink() or not path.is_file():
+                if _is_redirected(path) or not path.is_file() or not path.resolve().is_relative_to(root.resolve()):
                     continue
                 if path.stat().st_mtime <= older_than:
                     yield path
@@ -129,6 +143,9 @@ def clean_temp_files(selected_paths):
             if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
                 skipped += 1
                 continue
+            if _is_redirected(path) or not path.resolve().is_relative_to(root.resolve()):
+                skipped += 1
+                continue
             size = path.stat().st_size
             path.unlink()
             removed += 1
@@ -169,11 +186,7 @@ def _read_startup_backup():
 
 
 def _write_startup_backup(backup):
-    path = _startup_backup_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(backup, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temporary, path)
+    atomic_json(_startup_backup_path(), backup)
 
 
 def startup_overview():
@@ -211,6 +224,11 @@ def startup_overview():
 
 
 def set_startup_enabled(name, enabled):
+    with _startup_lock:
+        return _set_startup_enabled_locked(name, enabled)
+
+
+def _set_startup_enabled_locked(name, enabled):
     """Desativa/restaura um valor Run da conta atual com cópia reversível local."""
     if os.name != "nt":
         return {"success": False, "message": "Esta opção está disponível na versão para Windows."}

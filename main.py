@@ -1,8 +1,11 @@
 """Shadow: análise informativa com encerramento manual de aplicativos escolhidos."""
 
 import argparse
+import json
 import os
 import platform
+import shutil
+import subprocess
 import time
 
 import psutil
@@ -21,19 +24,127 @@ PROTECTED_PROCESS_NAMES = {
 }
 
 
-def scan_system(monitor_duration=5):
+def collect_hardware_info():
+    """Identifica dados básicos; GPU fica indisponível quando não há uma fonte confiável."""
+    cpu_name = platform.processor() or platform.uname().processor or "Não identificado"
+    gpu_names = []
+
+    if IS_WINDOWS:
+        powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+        if powershell:
+            command = (
+                "$cpu=(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name);"
+                "$gpu=@(Get-CimInstance Win32_VideoController | ForEach-Object {$_.Name});"
+                "[pscustomobject]@{cpu=$cpu;gpu=$gpu} | ConvertTo-Json -Compress"
+            )
+            try:
+                result = subprocess.run(
+                    [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=6,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    details = json.loads(result.stdout)
+                    cpu_name = details.get("cpu") or cpu_name
+                    names = details.get("gpu") or []
+                    gpu_names = [names] if isinstance(names, str) else names
+            except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+                pass
+    elif platform.system() == "Linux":
+        try:
+            with open("/proc/cpuinfo", encoding="utf-8", errors="replace") as cpuinfo:
+                for line in cpuinfo:
+                    key, separator, value = line.partition(":")
+                    if separator and key.strip().lower() in {"model name", "hardware"}:
+                        cpu_name = value.strip()
+                        break
+        except OSError:
+            pass
+
+        lspci = shutil.which("lspci")
+        if lspci:
+            try:
+                result = subprocess.run(
+                    [lspci, "-mm"], check=False, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=3,
+                )
+                for line in result.stdout.splitlines():
+                    if any(category in line.lower() for category in ("vga compatible controller", "3d controller", "display controller")):
+                        parts = line.split('"')
+                        if len(parts) >= 6:
+                            gpu_names.append(f"{parts[3]} {parts[5]}".strip())
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+
+    return {
+        "cpu_name": cpu_name,
+        "physical_cores": psutil.cpu_count(logical=False),
+        "logical_cores": psutil.cpu_count(logical=True),
+        "architecture": platform.machine() or "Não identificada",
+        "gpu_names": gpu_names,
+        "gpu_available": bool(gpu_names),
+    }
+
+
+def collect_system_info():
+    """Retorna o nome amigável do sistema sem confundir Windows 10 e 11."""
+    system_name = platform.system()
+    release = platform.release()
+    version = platform.version()
+    display_name = system_name
+
+    if IS_WINDOWS:
+        try:
+            build = int(version.split(".")[-1])
+        except (ValueError, IndexError):
+            build = 0
+        display_name = "Windows 11" if build >= 22000 else "Windows 10" if build else "Windows"
+    elif system_name == "Linux":
+        try:
+            display_name = platform.freedesktop_os_release().get("PRETTY_NAME") or "Linux"
+        except (AttributeError, OSError):
+            display_name = "Linux"
+
+    return {
+        "name": system_name,
+        "display_name": display_name,
+        "release": release,
+        "version": version,
+        "is_windows": IS_WINDOWS,
+    }
+
+
+def scan_system(monitor_duration=5, progress_callback=None):
     """Executa uma leitura completa e devolve um relatório que pode ser reutilizado pela GUI."""
     if monitor_duration < 1:
         raise ValueError("A duração do monitoramento deve ser de pelo menos 1 segundo.")
 
+    def report_progress(stage, status):
+        if progress_callback is not None:
+            try:
+                progress_callback(stage, status)
+            except Exception:
+                # Uma falha visual não deve interromper uma medição do sistema.
+                pass
+
+    report_progress("Preparando leitura", "active")
+
     memory = psutil.virtual_memory()
     cpu = psutil.cpu_percent(interval=1)
+    report_progress("Preparando leitura", "complete")
+
+    report_progress("Identificando sistema e hardware", "active")
+    system = collect_system_info()
+    hardware = collect_hardware_info()
+    report_progress("Identificando sistema e hardware", "complete")
+
     report = {
-        "system": {
-            "name": platform.system(),
-            "release": platform.release(),
-            "is_windows": IS_WINDOWS,
-        },
+        "system": system,
+        "hardware": hardware,
         "cpu_percent": cpu,
         "memory": {
             "total_gb": memory.total / BYTES_PER_GB,
@@ -43,12 +154,18 @@ def scan_system(monitor_duration=5):
     }
     print_report_header(report)
 
+    report_progress("Analisando memória e processos", "active")
     diagnosis = diagnose_system(memory, cpu)
     top_ram = show_top_processes()
     top_cpu = show_top_cpu_processes()
     recommendations = recommend_actions(memory, cpu)
-    monitoring = monitor_system(monitor_duration)
+    report_progress("Analisando memória e processos", "complete")
 
+    report_progress(f"Amostrando CPU e RAM por {monitor_duration} segundos", "active")
+    monitoring = monitor_system(monitor_duration)
+    report_progress(f"Amostrando CPU e RAM por {monitor_duration} segundos", "complete")
+
+    report_progress("Consolidando o relatório", "active")
     report.update({
         "diagnosis": diagnosis,
         "top_ram_processes": top_ram,
@@ -56,7 +173,104 @@ def scan_system(monitor_duration=5):
         "recommendations": recommendations,
         "monitoring": monitoring,
     })
+    report_progress("Consolidando o relatório", "complete")
     return report
+
+
+def build_diagnostic_findings(report, overview=None):
+    """Converte medições explícitas em achados com gravidade e sugestão segura."""
+    overview = overview or {}
+    monitoring = report.get("monitoring", {})
+    findings = []
+
+    cpu_average = monitoring.get("average_cpu", report.get("cpu_percent", 0))
+    ram_average = monitoring.get("average_ram", report.get("memory", {}).get("used_percent", 0))
+    available_gb = report.get("memory", {}).get("available_gb", 0)
+
+    if cpu_average >= 85:
+        findings.append({
+            "severity": "ALTA",
+            "title": "CPU muito ocupada durante a amostra",
+            "evidence": f"Uso médio de CPU: {cpu_average:.1f}% nos últimos segundos medidos.",
+            "suggestion": "Confira os maiores consumidores de CPU e feche apenas aplicativos que você reconhece, depois de salvar seu trabalho.",
+        })
+    elif cpu_average >= 70:
+        findings.append({
+            "severity": "MÉDIA",
+            "title": "Uso elevado de CPU na amostra",
+            "evidence": f"Uso médio de CPU: {cpu_average:.1f}% durante a análise.",
+            "suggestion": "Veja se um programa está executando uma tarefa esperada; repita a análise se essa atividade passar.",
+        })
+
+    if ram_average >= 92 or (available_gb < 1 and ram_average >= 85):
+        findings.append({
+            "severity": "ALTA",
+            "title": "Pouca memória disponível",
+            "evidence": f"RAM média usada: {ram_average:.1f}%; disponível na leitura: {available_gb:.1f} GB.",
+            "suggestion": "Revise os aplicativos que usam mais RAM e salve seu trabalho antes de fechar qualquer um.",
+        })
+    elif ram_average >= 82:
+        findings.append({
+            "severity": "MÉDIA",
+            "title": "Memória RAM bastante ocupada",
+            "evidence": f"RAM média usada: {ram_average:.1f}% durante a análise.",
+            "suggestion": "Confira os maiores consumidores de memória e encerre somente aplicativos dispensáveis que você reconhece.",
+        })
+
+    for disk in overview.get("disks", []):
+        used = disk.get("used_percent", 0)
+        if used >= 97:
+            severity = "ALTA"
+        elif used >= 90:
+            severity = "MÉDIA"
+        else:
+            continue
+        findings.append({
+            "severity": severity,
+            "title": f"Pouco espaço livre em {disk.get('name', 'uma unidade')}",
+            "evidence": f"{used:.0f}% usado; {disk.get('free_gb', 0):.1f} GB livres.",
+            "suggestion": "Revise arquivos grandes e aplicativos que você não usa. Confira cada item antes de removê-lo.",
+        })
+
+    if not findings:
+        findings.append({
+            "severity": "INFO",
+            "title": "Nenhuma pressão elevada identificada",
+            "evidence": f"CPU média {cpu_average:.1f}% e RAM média {ram_average:.1f}% nesta amostra.",
+            "suggestion": "O resultado é um retrato breve do uso atual. Repita a análise se o problema ocorrer em outro momento.",
+        })
+
+    top_cpu = (report.get("top_cpu_processes") or [None])[0]
+    if top_cpu:
+        findings.append({
+            "severity": "INFO",
+            "title": "Maior uso de CPU observado em um processo",
+            "evidence": f"{top_cpu.get('name', 'Processo desconhecido')}: {top_cpu.get('cpu_percent', 0):.1f}% na amostra curta por processo.",
+            "suggestion": "Confira a página Processos. Um pico isolado pode ser normal; investigue se continuar acontecendo quando o PC estiver lento.",
+        })
+
+    top_ram = (report.get("top_ram_processes") or [None])[0]
+    total_ram_mb = report.get("memory", {}).get("total_gb", 0) * 1024
+    if top_ram:
+        share = top_ram.get("ram_mb", 0) / total_ram_mb * 100 if total_ram_mb else 0
+        findings.append({
+            "severity": "INFO",
+            "title": "Maior consumidor de RAM observado",
+            "evidence": f"{top_ram.get('name', 'Processo desconhecido')}: {top_ram.get('ram_mb', 0):.0f} MB ({share:.1f}% da RAM total).",
+            "suggestion": "Veja se o aplicativo está sendo usado e se esse consumo é esperado. O Shadow não fecha processos automaticamente.",
+        })
+
+    startup = overview.get("startup", {})
+    if startup.get("supported"):
+        enabled_count = sum(1 for item in startup.get("items", []) if item.get("enabled"))
+        findings.append({
+            "severity": "INFO",
+            "title": "Aplicativos configurados para iniciar com sua conta",
+            "evidence": f"{enabled_count} item(ns) na lista de inicialização da conta atual.",
+            "suggestion": "Revise a página Inicialização; desative somente aplicativos conhecidos que você não precisa abrir ao entrar no Windows.",
+        })
+
+    return findings
 
 
 def print_report_header(report):
@@ -66,7 +280,15 @@ def print_report_header(report):
         print("O scanner está rodando em modo de desenvolvimento.")
 
     print("\n=== SHADOW PC OPTIMIZER ===")
-    print(f"Sistema: {report['system']['name']} {report['system']['release']}")
+    print(f"Sistema: {report['system']['display_name']} ({report['system']['version']})")
+    hardware = report["hardware"]
+    print(
+        f"CPU: {hardware['cpu_name']} | "
+        f"{hardware['physical_cores'] or '?'} núcleos / "
+        f"{hardware['logical_cores'] or '?'} threads"
+    )
+    gpu_text = ", ".join(hardware["gpu_names"]) if hardware["gpu_names"] else "não identificada nesta leitura"
+    print(f"GPU: {gpu_text}")
     print(f"CPU em uso: {report['cpu_percent']:.1f}%")
     print(f"RAM total: {report['memory']['total_gb']:.2f} GB")
     print(f"RAM em uso: {report['memory']['used_percent']:.1f}%")

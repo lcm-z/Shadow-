@@ -9,14 +9,12 @@ $buildEnv = Join-Path $PSScriptRoot ".venv-build-win"
 $python = Join-Path $buildEnv "Scripts\python.exe"
 python -m venv --clear $buildEnv
 
-& $python -m pip install --upgrade pip
-if ($LASTEXITCODE -ne 0) {
-    throw "Não foi possível preparar o ambiente de compilação."
-}
-& $python -m pip install -r requirements.txt pyinstaller
-if ($LASTEXITCODE -ne 0) {
-    throw "Não foi possível instalar as dependências de compilação."
-}
+if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar o ambiente de compilação." }
+& $python -m pip install -r requirements-build.txt
+if ($LASTEXITCODE -ne 0) { throw "Não foi possível instalar as dependências de compilação." }
+
+& $python -m unittest discover -p "test_*.py" -v
+if ($LASTEXITCODE -ne 0) { throw "Testes falharam; a compilação foi interrompida." }
 
 & $python -m PyInstaller `
     --noconfirm `
