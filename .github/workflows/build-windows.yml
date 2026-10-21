@@ -1,52 +1,43 @@
-$ErrorActionPreference = "Stop"
-Set-Location $PSScriptRoot
+name: Build Shadow for Windows
 
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    throw "Instale o Python 3 e adicione-o ao PATH do computador usado para compilar o Shadow."
-}
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
 
-$buildEnv = Join-Path $PSScriptRoot ".venv-build-win"
-$python = Join-Path $buildEnv "Scripts\python.exe"
-python -m venv --clear $buildEnv
+permissions:
+  contents: read
 
-if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar o ambiente de compilação." }
-& $python -m pip install -r requirements-build.txt
-if ($LASTEXITCODE -ne 0) { throw "Não foi possível instalar as dependências de compilação." }
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
 
-& $python -m unittest discover -p "test_*.py" -v
-if ($LASTEXITCODE -ne 0) { throw "Testes falharam; a compilação foi interrompida." }
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-& $python -m PyInstaller `
-    --noconfirm `
-    --clean `
-    --windowed `
-    --onefile `
-    --name Shadow `
-    --add-data "ui;ui" `
-    --collect-data webview `
-    --hidden-import webview.platforms.winforms `
-    --hidden-import webview.platforms.win32 `
-    --hidden-import webview.platforms.edgechromium `
-    --collect-all pythonnet `
-    --collect-all clr_loader `
-    --collect-all psutil `
-    --exclude-module webview.platforms.gtk `
-    --exclude-module webview.platforms.qt `
-    --exclude-module webview.platforms.android `
-    --exclude-module webview.platforms.cef `
-    --exclude-module webview.platforms.cocoa `
-    --exclude-module PyQt5 `
-    --exclude-module PyQt6 `
-    --exclude-module PySide2 `
-    --exclude-module PySide6 `
-    --exclude-module gi `
-    main.py
+      - name: Preparar Node para verificar a interface
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
-if ($LASTEXITCODE -ne 0) {
-    throw "A compilação falhou. Veja as mensagens acima."
-}
+      - name: Verificar JavaScript e controles da interface
+        run: |
+          node --check ui/app.js
+          node --test test_ui.cjs
 
-$exePath = Join-Path $PSScriptRoot "dist\Shadow.exe"
-$sizeMb = [math]::Round((Get-Item $exePath).Length / 1MB, 1)
-Write-Host "Shadow compilado: $exePath ($sizeMb MB)"
-Write-Host "O Microsoft Edge WebView2 Runtime é necessário no Windows de destino e não é incluído para manter o pacote menor."
+      - name: Compilar Shadow
+        shell: pwsh
+        run: ./build_windows.ps1
+
+      - name: Disponibilizar Shadow.exe para download
+        uses: actions/upload-artifact@v4
+        with:
+          name: Shadow-Windows
+          path: dist/Shadow.exe
+          if-no-files-found: error
+          retention-days: 14
