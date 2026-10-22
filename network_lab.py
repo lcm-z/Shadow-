@@ -154,7 +154,14 @@ def _ping_once(host):
         )
         output = f"{result.stdout}\n{result.stderr}"
         succeeded = result.returncode == 0
+        if os.name == "nt":
+            # ping.exe pode sair com 0 ao receber "Destino inacessível" do roteador.
+            # Uma resposta de eco contém TTL (IPv4) ou um tempo em ms (IPv6).
+            echo_reply = re.search(r"TTL\s*=\s*\d+|[=<]\s*[\d.,]+\s*ms", output, re.IGNORECASE)
+            succeeded = succeeded and echo_reply is not None
         latency, below_resolution = _parse_rtt(output)
+        if not succeeded:
+            latency, below_resolution = None, False
         error = None
         if not succeeded and re.search(r"could not find host|name or service not known|temporary failure in name resolution|unknown host|não foi possível localizar o host", output, re.IGNORECASE):
             error = "O nome do host não foi resolvido; pode haver um problema de DNS."

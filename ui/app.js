@@ -85,6 +85,7 @@ async function enterDashboard() {
   welcome.classList.add("welcome-leaving");
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!reducedMotion) await new Promise(resolve => window.setTimeout(resolve, 450));
+  if (appClosing) return;
   welcome.classList.add("hidden");
   welcome.classList.remove("intro-playing", "welcome-leaving");
   dashboard.classList.remove("dashboard-arriving");
@@ -170,10 +171,10 @@ window.addEventListener("pywebviewready", () => {
   }).catch(error => showNotice(`Preferências indisponíveis: ${error.message || error}`, "warning"));
 });
 window.addEventListener("error", event => {
-  if (window.pywebview?.api) window.pywebview.api.log_frontend_error(event.message || "Erro JavaScript", event.filename || "");
+  if (window.pywebview?.api) window.pywebview.api.log_frontend_error(event.message || "Erro JavaScript", event.filename || "").catch(() => {});
 });
 window.addEventListener("unhandledrejection", event => {
-  if (window.pywebview?.api) window.pywebview.api.log_frontend_error(event.reason?.message || String(event.reason || "Promise rejeitada"), "Promise não tratada");
+  if (window.pywebview?.api) window.pywebview.api.log_frontend_error(event.reason?.message || String(event.reason || "Promise rejeitada"), "Promise não tratada").catch(() => {});
 });
 
 function showDashboardPage(pageName) {
@@ -319,7 +320,7 @@ async function clearErrorLog() {
 
 function logClientError(context, error) {
   if (!window.pywebview?.api) return;
-  window.pywebview.api.log_frontend_error(`${context}: ${error?.message || error}`, "Shadow UI");
+  window.pywebview.api.log_frontend_error(`${context}: ${error?.message || error}`, "Shadow UI").catch(() => {});
 }
 
 async function analyze() {
@@ -614,8 +615,10 @@ async function loadOptimizerOverview() {
     renderTempPreview(currentOptimizerOverview.temp_cleanup || {});
     renderStartup(currentOptimizerOverview.startup || {});
     renderPowerPlans(currentOptimizerOverview.power_plans || {});
-    latestReport.findings = await window.pywebview.api.diagnostic_findings(latestReport, currentOptimizerOverview);
-    renderDiagnosticReport(latestReport, currentOptimizerOverview);
+    if (latestReport) {
+      latestReport.findings = await window.pywebview.api.diagnostic_findings(latestReport, currentOptimizerOverview);
+      renderDiagnosticReport(latestReport, currentOptimizerOverview);
+    }
     await loadGamingOverview();
     await loadPerformanceOverview();
     await loadNetworkOverview();
@@ -1008,7 +1011,8 @@ async function samplePerformanceSession() {
 }
 
 async function stopPerformanceSession() {
-  if (!performanceSessionStartedAt) return;
+  if (!performanceSessionStartedAt || document.querySelector("#performance-stop-button").disabled) return;
+  document.querySelector("#performance-stop-button").disabled = true;
   window.clearInterval(performanceTimer);
   performanceTimer = null;
   try {
@@ -1031,9 +1035,9 @@ async function stopPerformanceSession() {
     updatePerformanceControls();
   } catch (error) {
     showNotice(`Não foi possível finalizar a sessão: ${error.message || error}`, "warning");
-    performanceSessionStartedAt = null;
-    document.querySelector("#performance-start-button").disabled = false;
-    document.querySelector("#performance-stop-button").disabled = true;
+    document.querySelector("#performance-stop-button").disabled = false;
+  } finally {
+    if (performanceSessionStartedAt) document.querySelector("#performance-stop-button").disabled = false;
   }
 }
 
@@ -1638,8 +1642,10 @@ function isOverviewVisible() {
 async function updateLiveSample() {
   if (appClosing || liveRequestBusy || !window.pywebview?.api) return;
   liveRequestBusy = true;
+  const report = latestReport;
   try {
     const sample = await window.pywebview.api.live_sample();
+    if (appClosing || report !== latestReport) return;
     setText("cpu-value", `${sample.cpu_percent.toFixed(1)}%`);
     setText("ram-value", `${sample.ram_percent.toFixed(1)}%`);
     setText("available-value", `${sample.available_gb.toFixed(1)} GB`);
@@ -1658,8 +1664,15 @@ async function updateLiveSample() {
     }
     if (isOverviewVisible()) drawChart();
   } catch (error) {
-    showNotice(`O monitoramento ao vivo parou: ${error.message || error}`, "warning");
-    toggleLiveMonitoring();
+    clearInterval(liveTimer);
+    liveTimer = null;
+    livePausedByVisibility = false;
+    if (!appClosing) {
+      liveToggleButton.textContent = "Iniciar ao vivo";
+      document.querySelector("#live-status").classList.add("paused");
+      document.querySelector("#live-status").innerHTML = "<i></i> PAUSADO";
+      showNotice(`O monitoramento ao vivo parou: ${error.message || error}`, "warning");
+    }
   } finally {
     liveRequestBusy = false;
   }
@@ -1878,14 +1891,14 @@ function showError(message) {
   const toast = document.querySelector("#error-toast");
   toast.textContent = message;
   toast.className = `notice-toast ${message ? "warning" : "hidden"}`;
-  if (message && window.pywebview?.api) window.pywebview.api.log_frontend_error(message, "Falha exibida pela interface");
+  if (message && window.pywebview?.api) window.pywebview.api.log_frontend_error(message, "Falha exibida pela interface").catch(() => {});
 }
 
 function showNotice(message, kind) {
   const toast = document.querySelector("#error-toast");
   toast.textContent = message;
   toast.className = `notice-toast ${kind}`;
-  if (kind === "warning" && window.pywebview?.api) window.pywebview.api.log_frontend_error(message, "Aviso de operação");
+  if (kind === "warning" && window.pywebview?.api) window.pywebview.api.log_frontend_error(message, "Aviso de operação").catch(() => {});
 }
 
 /* ============================================================================

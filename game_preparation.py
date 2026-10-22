@@ -24,6 +24,9 @@ class GamePreparation:
             value = json.loads((self.directory / filename).read_text(encoding="utf-8"))
             if not isinstance(value, dict):
                 raise ValueError("Formato inválido")
+            if filename == "game_session.json" and value.get("active"):
+                if any(not isinstance(value.get(k), str) or not value[k] for k in ("previous_guid", "expected_guid")):
+                    raise ValueError("Plano salvo inválido")
             return value
         except FileNotFoundError:
             return {}

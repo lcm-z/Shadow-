@@ -1,13 +1,36 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    throw "Instale o Python 3 e adicione-o ao PATH do computador usado para compilar o Shadow."
+$requiredFiles = @(
+    "main.py", "app_webview.py", "app_support.py", "optimizations.py", "gaming.py",
+    "game_preparation.py", "hardware_telemetry.py", "history.py", "network_lab.py",
+    "performance_lab.py", "ui_settings.py", "window_lifecycle.py",
+    "requirements.txt", "requirements-build.txt", "test_ui.cjs",
+    "test_improvements.py", "test_window_lifecycle.py", "test_compatibility.py",
+    "ui/index.html", "ui/app.js", "ui/style.css"
+)
+foreach ($requiredFile in $requiredFiles) {
+    if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+        throw "Arquivo ausente: $requiredFile. Use o conteúdo completo da pasta SHADOW OPTIMIZER."
+    }
 }
 
+# Confirma a versão do Python no PATH; usa o launcher 3.12 como alternativa.
+$env:PYTHONUTF8 = "1"
 $buildEnv = Join-Path $PSScriptRoot ".venv-build-win"
 $python = Join-Path $buildEnv "Scripts\python.exe"
-python -m venv --clear $buildEnv
+$pythonReady = $false
+if (Get-Command python -ErrorAction SilentlyContinue) {
+    & python -c "import sys; sys.exit(0 if (3,12) <= sys.version_info[:2] < (3,15) else 1)"
+    $pythonReady = ($LASTEXITCODE -eq 0)
+}
+if ($pythonReady) {
+    & python -m venv --clear $buildEnv
+} elseif (Get-Command py -ErrorAction SilentlyContinue) {
+    & py -3.12 -m venv --clear $buildEnv
+} else {
+    throw "Instale Python 3.12 com o launcher py ou adicione-o ao PATH."
+}
 
 if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar o ambiente de compilação." }
 & $python -m pip install -r requirements-build.txt

@@ -139,7 +139,7 @@ class Telemetry:
                 other_gpus, temperatures = windows_sensors() if os.name == "nt" else linux_sensors()
                 # Evita duplicar placas NVIDIA quando nvidia-smi respondeu.
                 gpus.extend(g for g in other_gpus if not (gpus and g["id"].startswith("/gpu-nvidia/")))
-            except (OSError, ValueError, subprocess.TimeoutExpired, AttributeError):
+            except (OSError, ValueError, subprocess.TimeoutExpired, AttributeError, psutil.Error):
                 notes.append("O provedor de sensores adicional não está disponível.")
             for gpu in gpus:
                 if gpu.get("temperature_c") is not None and gpu["source"] == "nvidia-smi":

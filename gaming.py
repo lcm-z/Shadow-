@@ -115,13 +115,15 @@ def _epic_games():
         for file in manifests:
             try:
                 record = json.loads(file.read_text(encoding="utf-8"))
+                if not isinstance(record, dict):
+                    continue
                 name = record.get("DisplayName") or record.get("AppName")
                 location = record.get("InstallLocation")
                 app_name = record.get("AppName")
-                if not name or not location or not app_name or not Path(location).is_dir():
+                if not all(isinstance(v, str) and v for v in (name, location, app_name)) or not Path(location).is_dir():
                     continue
                 games.append({"id": f"epic:{app_name}", "name": name, "launcher": "Epic Games", "path": str(Path(location))})
-            except (OSError, json.JSONDecodeError):
+            except (OSError, ValueError):
                 continue
     except OSError:
         pass
@@ -157,8 +159,8 @@ def load_game_profiles(storage_path=None):
             raise ValueError("Formato inválido")
         profiles = data.get("profiles", {})
         history = data.get("history", [])
-        return {"profiles": profiles if isinstance(profiles, dict) else {},
-                "history": history if isinstance(history, list) else []}
+        return {"profiles": {k: v for k, v in profiles.items() if isinstance(v, dict)} if isinstance(profiles, dict) else {},
+                "history": [v for v in history if isinstance(v, dict)] if isinstance(history, list) else []}
     except (OSError, json.JSONDecodeError, ValueError):
         return {"profiles": {}, "history": []}
 

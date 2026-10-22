@@ -151,8 +151,8 @@ def load_history(storage_path=None):
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         records = data.get("records", []) if isinstance(data, dict) else []
-        return records if isinstance(records, list) else []
-    except (OSError, json.JSONDecodeError):
+        return [v for v in records if isinstance(v, dict) and isinstance(v.get("system", {}), dict) and isinstance(v.get("capture", {}), dict)] if isinstance(records, list) else []
+    except (OSError, ValueError):
         return []
 
 

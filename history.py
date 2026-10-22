@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from ui_settings import atomic_json
 
 
 MAX_DIAGNOSTICS = 30
@@ -28,24 +29,20 @@ def history_path():
 def _read(path=None):
     try:
         data = json.loads(Path(path or history_path()).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {"diagnostics": [], "actions": []}
     if not isinstance(data, dict):
         return {"diagnostics": [], "actions": []}
     diagnostics = data.get("diagnostics", [])
     actions = data.get("actions", [])
     return {
-        "diagnostics": diagnostics if isinstance(diagnostics, list) else [],
-        "actions": actions if isinstance(actions, list) else [],
+        "diagnostics": [item for item in diagnostics if isinstance(item, dict) and isinstance(item.get("timestamp", 0), (int, float))] if isinstance(diagnostics, list) else [],
+        "actions": [item for item in actions if isinstance(item, dict) and isinstance(item.get("timestamp", 0), (int, float))] if isinstance(actions, list) else [],
     }
 
 
 def _write(data, path=None):
-    destination = Path(path or history_path())
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(".tmp")
-    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temporary, destination)
+    atomic_json(Path(path or history_path()), data)
 
 
 def record_diagnostic(report, path=None):

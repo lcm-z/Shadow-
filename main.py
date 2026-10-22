@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 import platform
 import shutil
@@ -33,7 +34,7 @@ def collect_hardware_info():
         powershell = shutil.which("powershell.exe") or shutil.which("powershell")
         if powershell:
             command = (
-                "$cpu=(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name);"
+                "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $cpu=(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name);"
                 "$gpu=@(Get-CimInstance Win32_VideoController | ForEach-Object {$_.Name});"
                 "[pscustomobject]@{cpu=$cpu;gpu=$gpu} | ConvertTo-Json -Compress"
             )
@@ -46,6 +47,7 @@ def collect_hardware_info():
                     encoding="utf-8",
                     errors="replace",
                     timeout=6,
+                    **({"creationflags": subprocess.CREATE_NO_WINDOW} if hasattr(subprocess, "CREATE_NO_WINDOW") else {}),
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     details = json.loads(result.stdout)
@@ -407,7 +409,8 @@ def terminate_user_process(pid, expected_name, expected_create_time):
             return {"success": False, "message": "Esse processo essencial do sistema está protegido."}
         if name.casefold() != str(expected_name).casefold():
             return {"success": False, "message": "O processo mudou desde a análise. Atualize a leitura."}
-        if abs(process.create_time() - float(expected_create_time)) > 0.01:
+        expected_created = float(expected_create_time)
+        if not math.isfinite(expected_created) or abs(process.create_time() - expected_created) > 0.01:
             return {"success": False, "message": "O PID foi reutilizado por outro processo. Atualize a leitura."}
 
         try:
@@ -431,24 +434,38 @@ def terminate_user_process(pid, expected_name, expected_create_time):
             # WM_CLOSE pede que o aplicativo feche sua janela e salve/consulte
             # o usuário normalmente. Não usamos TerminateProcess como fallback.
             import ctypes
+            from ctypes import wintypes
 
             user32 = ctypes.windll.user32
             windows = []
-            callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            # HWND/WPARAM/LPARAM possuem largura de ponteiro no Windows 64 bits.
+            user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+            user32.EnumWindows.restype = wintypes.BOOL
+            user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+            user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+            user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+            user32.PostMessageW.restype = wintypes.BOOL
 
             def collect_windows(handle, _parameter):
-                window_pid = ctypes.c_ulong()
+                window_pid = wintypes.DWORD()
                 user32.GetWindowThreadProcessId(handle, ctypes.byref(window_pid))
                 if window_pid.value == pid:
                     windows.append(handle)
                 return True
 
             callback = callback_type(collect_windows)
-            user32.EnumWindows(callback, 0)
+            if not user32.EnumWindows(callback, 0):
+                return {"success": False, "message": "Não foi possível consultar as janelas do aplicativo."}
             if not windows:
                 return {"success": False, "message": "Esse processo não tem uma janela que possa ser fechada com segurança. Ele não foi encerrado."}
             for handle in windows:
-                user32.PostMessageW(handle, 0x0010, 0, 0)  # WM_CLOSE
+                window_pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(handle, ctypes.byref(window_pid))
+                if window_pid.value != pid or not process.is_running():
+                    continue
+                if not user32.PostMessageW(handle, 0x0010, 0, 0):  # WM_CLOSE
+                    return {"success": False, "message": "O Windows não permitiu pedir o fechamento desta janela."}
         else:
             process.terminate()  # SIGTERM: pedido normal de encerramento no Linux.
         try:

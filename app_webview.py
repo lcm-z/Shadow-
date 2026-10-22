@@ -505,6 +505,14 @@ def launch_gui():
             webview.start(gui="edgechromium")
         else:
             webview.start()
+    except Exception as error:
+        log_error("Falha ao iniciar a janela", f"{type(error).__name__}: {error}")
+        message = "Não foi possível abrir o Shadow. Verifique o Microsoft Edge WebView2 Runtime no Windows e consulte o log local do Shadow."
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "Shadow", 0x10)
+        elif sys.stderr is not None:
+            print(f"{message}\n{error}", file=sys.stderr)
     finally:
         lifecycle.stop()
 

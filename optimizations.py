@@ -171,18 +171,17 @@ def _read_startup_backup():
     path = _startup_backup_path()
     try:
         backup = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return {}
-    if not isinstance(backup, dict):
-        return {}
-    return {
-        name: saved
+    except (OSError, ValueError) as error:
+        raise ValueError("A cópia da inicialização está ilegível. Ela foi preservada; nenhuma alteração será feita.") from error
+    if not isinstance(backup, dict) or any(
+        not isinstance(name, str) or not isinstance(saved, dict)
+        or not isinstance(saved.get("command"), str) or type(saved.get("type")) is not int
         for name, saved in backup.items()
-        if isinstance(name, str)
-        and isinstance(saved, dict)
-        and isinstance(saved.get("command"), str)
-        and isinstance(saved.get("type"), int)
-    }
+    ):
+        raise ValueError("A cópia da inicialização tem formato inválido e foi preservada.")
+    return backup
 
 
 def _write_startup_backup(backup):
@@ -196,7 +195,10 @@ def startup_overview():
 
     import winreg
 
-    backup = _read_startup_backup()
+    try:
+        backup = _read_startup_backup()
+    except ValueError as error:
+        return {"supported": False, "message": str(error), "items": []}
     items = []
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ) as key:
@@ -212,6 +214,8 @@ def startup_overview():
                 items.append({"name": name, "command": command, "enabled": True, "source": "Run"})
     except FileNotFoundError:
         pass
+    except OSError:
+        return {"supported": False, "message": "O Windows não permitiu consultar a inicialização da conta.", "items": []}
 
     for name, saved in backup.items():
         items.append({"name": name, "command": saved.get("command", ""), "enabled": False, "source": "Run"})
@@ -237,7 +241,10 @@ def _set_startup_enabled_locked(name, enabled):
 
     import winreg
 
-    backup = _read_startup_backup()
+    try:
+        backup = _read_startup_backup()
+    except ValueError as error:
+        return {"success": False, "message": str(error)}
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
             if enabled:
@@ -292,7 +299,8 @@ def power_plan_overview():
     if os.name != "nt":
         return {"supported": False, "message": "Os planos de energia do Windows aparecem na versão para Windows.", "plans": []}
     try:
-        result = subprocess.run(["powercfg", "/list"], capture_output=True, text=True, timeout=8)
+        result = subprocess.run(["powercfg", "/list"], capture_output=True, text=True, errors="replace", timeout=8,
+                                **({"creationflags": subprocess.CREATE_NO_WINDOW} if hasattr(subprocess, "CREATE_NO_WINDOW") else {}))
         if result.returncode != 0:
             return {"supported": False, "message": "O Windows não conseguiu listar os planos de energia.", "plans": []}
         plans = []
@@ -325,7 +333,8 @@ def activate_power_plan(guid):
     if not overview["supported"] or not any(plan["guid"].casefold() == guid.casefold() for plan in overview["plans"]):
         return {"success": False, "message": "Esse plano não está disponível neste computador."}
     try:
-        result = subprocess.run(["powercfg", "/setactive", guid], capture_output=True, text=True, timeout=8)
+        result = subprocess.run(["powercfg", "/setactive", guid], capture_output=True, text=True, errors="replace", timeout=8,
+                                **({"creationflags": subprocess.CREATE_NO_WINDOW} if hasattr(subprocess, "CREATE_NO_WINDOW") else {}))
         if result.returncode != 0:
             return {"success": False, "message": "O Windows não permitiu ativar esse plano."}
         return {"success": True, "message": "Plano de energia atualizado. Você pode alterá-lo novamente quando quiser."}

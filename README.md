@@ -87,3 +87,18 @@ Os testes simulam ações do Windows: falhas de backup, inicialização da conta
 O GitHub Actions verifica JavaScript antes de compilar. O script Windows executa os testes Python e interrompe a compilação em caso de falha. As dependências diretas e o PyInstaller estão fixados; dependências transitivas ainda são resolvidas pelo pip. O ajuste de encerramento Qt foi escrito para pywebview 6.2.1: reveja os testes ao atualizar essa versão.
 
 Antes de publicar uma versão, valide também a janela, sensores e restauração em um Windows 10/11 real. Os testes simulados no Linux não substituem essa validação. Não há geração de frames no Shadow.
+
+
+## Correções de compatibilidade
+
+A revisão de compatibilidade mantém as telas e os recursos existentes. Inclui:
+
+- Testes JavaScript compatíveis com arquivos LF/CRLF e proteção por `.gitattributes`.
+- Tipos de ponteiro explícitos ao pedir fechamento de janelas no Windows 64 bits.
+- Preservação de backups de inicialização ilegíveis; operações são bloqueadas com mensagem.
+- Tratamento de entradas inválidas nos históricos e manifestos de jogos.
+- Mensagem de erro ao falhar a abertura do WebView2 e prevenção de ciclos de erros na interface.
+- Tratamento de respostas “destino inacessível” do ping do Windows.
+- Conferência dos arquivos obrigatórios antes de compilar e seleção de Python compatível.
+
+Inclua também `test_compatibility.py` e `.gitattributes` ao enviar o projeto. Os testes Windows são simulados quando executados no Linux; ainda é necessário validar o executável e o WebView2 no Windows real. Nenhuma revisão garante ausência de todos os bugs.
